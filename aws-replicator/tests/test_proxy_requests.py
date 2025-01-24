@@ -1,18 +1,26 @@
 # Note: these tests depend on the extension being installed and actual AWS credentials being configured, such
 # that the proxy can be started within the tests. They are designed to be mostly run in CI at this point.
 import gzip
+import re
+from urllib.parse import urlparse
 
 import boto3
 import pytest
+from botocore.client import Config
 from botocore.exceptions import ClientError
 from localstack.aws.connect import connect_to
-from localstack.constants import TEST_AWS_ACCOUNT_ID
 from localstack.utils.aws.arns import sqs_queue_arn, sqs_queue_url_for_arn
 from localstack.utils.net import wait_for_port_open
 from localstack.utils.sync import retry
 
 from aws_replicator.client.auth_proxy import start_aws_auth_proxy
 from aws_replicator.shared.models import ProxyConfig
+
+try:
+    from localstack.testing.config import TEST_AWS_ACCOUNT_ID
+except ImportError:
+    # backwards compatibility
+    from localstack.constants import TEST_AWS_ACCOUNT_ID
 
 # binding proxy to 0.0.0.0 to enable testing in CI
 PROXY_BIND_HOST = "0.0.0.0"
@@ -35,13 +43,33 @@ def start_aws_proxy():
 
 
 @pytest.mark.parametrize("metadata_gzip", [True, False])
-def test_s3_requests(start_aws_proxy, s3_create_bucket, metadata_gzip):
+@pytest.mark.parametrize("target_endpoint", ["local_domain", "aws_domain", "default"])
+def test_s3_requests(start_aws_proxy, s3_create_bucket, metadata_gzip, target_endpoint):
     # start proxy
     config = ProxyConfig(services={"s3": {"resources": ".*"}}, bind_host=PROXY_BIND_HOST)
     start_aws_proxy(config)
 
     # create clients
-    s3_client = connect_to().s3
+    if target_endpoint == "default":
+        s3_client = connect_to().s3
+    else:
+        s3_client = connect_to(
+            endpoint_url="http://s3.localhost.localstack.cloud:4566",
+            config=Config(s3={"addressing_style": "virtual"}),
+        ).s3
+
+    if target_endpoint == "aws_domain":
+
+        def _add_header(request, **kwargs):
+            # instrument boto3 client to add custom `Host` header, mimicking a `*.s3.amazonaws.com` request
+            url = urlparse(request.url)
+            match = re.match(r"(.+)\.s3\.localhost\.localstack\.cloud", url.netloc)
+            if match:
+                request.headers.add_header("host", f"{match.group(1)}.s3.us-east-1.amazonaws.com")
+
+        s3_client.meta.events.register_first("before-sign.*.*", _add_header)
+
+    # define S3 client pointing to real AWS
     s3_client_aws = boto3.client("s3")
 
     # list buckets to assert that proxy is up and running

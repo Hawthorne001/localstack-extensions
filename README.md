@@ -1,4 +1,4 @@
-# LocalStack Extensions (beta)
+# LocalStack Extensions (Preview)
 
 <p align="center">
   <img src="https://github.com/localstack/localstack-extensions/assets/3996682/bba99a4a-e479-4da9-ba3e-1ea9ce80f9b7" alt="LocalStack Extensions">
@@ -7,7 +7,7 @@
 
 With LocalStack 1.0 we have introduced LocalStack Extensions that allow
 developers to extend and customize LocalStack. Both the feature and the API
-are currently experimental and may be subject to change.
+are currently in preview and may be subject to change.
 
 ## Using Extensions
 
@@ -15,7 +15,7 @@ Extensions are a LocalStack Pro feature.
 To use and install extensions, use the CLI to first log in to your account
 
 ```console
-$ localstack login
+$ localstack auth login
 Please provide your login credentials below
 Username: ...
 ```
@@ -25,11 +25,10 @@ $ localstack extensions --help
 
 Usage: localstack extensions [OPTIONS] COMMAND [ARGS]...
 
-  (Beta) Manage LocalStack extensions.
+  (Preview) Manage LocalStack extensions.
 
   LocalStack Extensions allow developers to extend and customize LocalStack.
-  The feature and the API are currently experimental and may be subject to
-  change.
+  The feature and the API are currently in a preview stage and may be subject to change.
 
   Visit https://docs.localstack.cloud/references/localstack-extensions/
   for more information on LocalStack Extensions.
@@ -74,7 +73,8 @@ You can install the respective extension by calling `localstack install <Install
 | [httpbin](https://github.com/localstack/localstack-extensions/tree/main/httpbin) | localstack-extension-httpbin | 0.1.0 | Stable |
 | [MailHog](https://github.com/localstack/localstack-extensions/tree/main/mailhog) | localstack-extension-mailhog | 0.1.0 | Stable |
 | [Miniflare](https://github.com/localstack/localstack-extensions/tree/main/miniflare) | localstack-extension-miniflare | 0.1.0 | Experimental |
-| [Stripe](https://github.com/localstack/localstack-extensions/tree/main/stripe) | localstack-extension-stripe | 0.1.0 | Stable |
+| [Stripe](https://github.com/localstack/localstack-extensions/tree/main/stripe) | localstack-extension-stripe | 0.2.0 | Stable |
+| [Terraform Init](https://github.com/localstack/localstack-extensions/tree/main/terraform-init) | localstack-extension-terraform-init | 0.2.0 | Experimental |
 
 
 ## Developing Extensions
@@ -85,7 +85,7 @@ This section provides a brief overview of how to develop your own extensions.
 
 LocalStack exposes a Python API for building extensions that can be found in
 the core codebase in
-[`localstack.extensions.api`](https://github.com/localstack/localstack/tree/master/localstack/extensions/api).
+[`localstack.extensions.api`](https://github.com/localstack/localstack/tree/master/localstack-core/localstack/extensions/api).
 
 The basic interface to implement is as follows:
 

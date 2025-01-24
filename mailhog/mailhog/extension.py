@@ -4,7 +4,13 @@ from typing import TYPE_CHECKING, Optional
 
 from localstack import config, constants
 from localstack.extensions.api import Extension, http
-from localstack_ext import config as config_ext
+from werkzeug.utils import append_slash_redirect
+
+try:
+    from localstack.pro.core import config as config_pro
+except ImportError:
+    # TODO remove once we don't need compatibility with <3.6 anymore
+    from localstack_ext import config as config_pro
 
 if TYPE_CHECKING:
     # conditional import for type checking during development. the actual import is deferred to plugin loading
@@ -57,10 +63,10 @@ class MailHogExtension(Extension):
         LOG.info("starting mailhog server")
         self.server.start()
 
-        if not config_ext.SMTP_HOST:
-            config_ext.SMTP_HOST = f"localhost:{self.server.smtp_port}"
-            os.environ["SMTP_HOST"] = config_ext.SMTP_HOST
-            LOG.info("configuring SMTP host to internal mailhog smtp: %s", config_ext.SMTP_HOST)
+        if not config_pro.SMTP_HOST:
+            config_pro.SMTP_HOST = f"localhost:{self.server.smtp_port}"
+            os.environ["SMTP_HOST"] = config_pro.SMTP_HOST
+            LOG.info("configuring SMTP host to internal mailhog smtp: %s", config_pro.SMTP_HOST)
 
     def on_platform_ready(self):
         # FIXME: reconcile with LOCALSTACK_HOST. the URL should be reachable from the host (the idea is
@@ -75,6 +81,11 @@ class MailHogExtension(Extension):
 
     def update_gateway_routes(self, router: http.Router[http.RouteHandler]):
         endpoint = http.ProxyHandler(forward_base_url=self.server.url + "/" + self.server.web_path)
+
+        def _redirect_endpoint(request, *args, **kwargs):
+            if not request.path.endswith("/"):
+                return append_slash_redirect(request.environ)
+            return endpoint(request, *args, **kwargs)
 
         # hostname aliases
         router.add(
@@ -92,11 +103,10 @@ class MailHogExtension(Extension):
         # useful, since the webapp needs to be accessed with a trailing slash (localhost:4566/<webpath>/)
         # otherwise the relative urls (like `images/logo.png`) are resolved as
         # `localhost:4566/images/login.png` which looks like an S3 access and will lead to localstack errors.
-        # alas, we disabled this for good reason, so we're stuck with telling the user to add the trailing
-        # slash.
+        # alas, we disabled this for good reason, so we need to catch the request and redirect it if needed
         router.add(
             f"/{self.server.web_path}",
-            endpoint=endpoint,
+            endpoint=_redirect_endpoint,
         )
         router.add(
             f"/{self.server.web_path}/<path:path>",

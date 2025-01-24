@@ -5,6 +5,9 @@ VENV_RUN = . $(VENV_ACTIVATE)
 TEST_PATH ?= tests
 PIP_CMD ?= pip
 
+usage:                    ## Show this help
+	@grep -Fh "##" $(MAKEFILE_LIST) | grep -Fv fgrep | sed -e 's/:.*##\s*/##/g' | awk -F'##' '{ printf "%-25s %s\n", $$1, $$2 }'
+
 venv: $(VENV_ACTIVATE)
 
 $(VENV_ACTIVATE): setup.py setup.cfg
@@ -30,7 +33,7 @@ install: venv
 	$(VENV_RUN); $(PIP_CMD) install -e ".[test]"
 
 test: venv
-	$(VENV_RUN); python -m pytest $(TEST_PATH)
+	$(VENV_RUN); python -m pytest $(PYTEST_ARGS) $(TEST_PATH)
 
 dist: venv
 	$(VENV_RUN); python setup.py sdist bdist_wheel
@@ -40,10 +43,10 @@ build:   ## Build the extension
 	cp -r setup.py setup.cfg README.md aws_replicator build/
 	(cd build && python setup.py sdist)
 
-enable: $(wildcard ./build/dist/localstack-extension-aws-replicator-*.tar.gz)  ## Enable the extension in LocalStack
+enable: $(wildcard ./build/dist/localstack_extension_aws_replicator-*.tar.gz)  ## Enable the extension in LocalStack
 	$(VENV_RUN); \
 		pip uninstall --yes localstack-extension-aws-replicator; \
-		localstack extensions -v install file://./$?
+		localstack extensions -v install file://$?
 
 publish: clean-dist venv dist
 	$(VENV_RUN); pip install --upgrade twine; twine upload dist/*

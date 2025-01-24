@@ -1,10 +1,13 @@
-AWS Replicator Extension (experimental)
+AWS Cloud Proxy Extension (experimental)
 ========================================
 [![Install LocalStack Extension](https://localstack.cloud/gh/extension-badge.svg)](https://app.localstack.cloud/extensions/remote?url=git+https://github.com/localstack/localstack-extensions/#egg=localstack-extension-aws-replicator&subdirectory=aws-replicator)
 
-A LocalStack extension to replicate AWS resources into your local machine.
+A LocalStack extension to proxy and integrate AWS resources into your local machine.
+This enables one flavor of "hybrid" or "remocal" setups where you can easily bridge the gap between LocalStack (local resources) and remote AWS (resources in the real cloud).
 
-⚠️ Please note that this extension is experimental and currently under active development.
+⚠️ Please note that this extension is experimental and still under active development.
+
+⚠️ Note: Given that the scope of this extension has recently changed (see [below](#resource-replicator-cli-deprecated)), it may get renamed from `aws-replicator` to `cloud-proxy` in an upcoming release.
 
 ## Prerequisites
 
@@ -12,17 +15,14 @@ A LocalStack extension to replicate AWS resources into your local machine.
 * Docker
 * Python
 
-## Overview
+## AWS Cloud Proxy
 
-This extension currently offers two modes of operation: (1) the AWS connection proxy, and (2) the resource replicator CLI.
-
-## AWS Connection Proxy
-
-The AWS connection proxy can be used to forward certain API calls in LocalStack to real AWS, in order to enable seamless transition between local and remote resources.
+The AWS Cloud Proxy can be used to forward certain API calls in LocalStack to real AWS, in order to enable seamless transition between local and remote resources.
 
 **Warning:** Be careful when using the proxy - make sure to _never_ give access to production accounts or any critical/sensitive data!
 
-**Note:** The replicator CLI currently works only when installing the `localstack` CLI via `pip`. If you're downloading the `localstack` CLI as a [binary release](https://docs.localstack.cloud/getting-started/installation/#localstack-cli), then please use the proxy configuration UI described below.
+**Note:** The Cloud Proxy CLI currently works only when installing the `localstack` CLI via `pip`.
+If you're downloading the `localstack` CLI as a [binary release](https://docs.localstack.cloud/getting-started/installation/#localstack-cli), then please use the proxy configuration UI described below.
 
 ### Usage
 
@@ -66,7 +66,7 @@ EXTRA_CORS_ALLOWED_ORIGINS=https://aws-replicator.localhost.localstack.cloud:456
 
 5. Now we can communicate with the real AWS cloud resources, directly via LocalStack.
 
-To clean up the running proxy container simply click "disable" on the Replicator UI.
+To clean up the running proxy container simply click "disable" on the Cloud Proxy UI.
 
 ### Resource-specific proxying
 
@@ -115,41 +115,29 @@ In addition to the proxy services configuration shown above, the following confi
 * `REPLICATOR_LOCALSTACK_HOST`: the target host to use when the proxy container connects to the LocalStack main container (automatically determined by default)
 * `REPLICATOR_PROXY_DOCKER_FLAGS`: additional flags that should be passed when creating the proxy Docker containers
 
-## Resource Replicator CLI
+**Note:** Due to some recent changes in the core framework, make sure to start up your LocalStack container with the `GATEWAY_SERVER=hypercorn` configuration enabled, for backwards compatibility. This will be fixed in an upcoming release.
 
-The figure below illustrates how the extension can be used to replicate the state, e.g., an SQS queue and the messages contained in it, from AWS into your LocalStack instance.
+## Resource Replicator CLI (deprecated)
 
-![overview](etc/aws-replicate-overview.png)
+Note: Previous versions of this extension also offered a "replicate" mode to copy/clone (rather than proxy) resources from an AWS account into the local instance.
+This functionality has been removed from this extension, and is now being migrated to a new extension (more details following soon).
 
-To use the resource replicator, make sure that you have access to AWS configured in your terminal. Note: the extension will only talk to AWS in read-only mode, and will **not** make any changes to your real AWS account.
-
-The following command can be used to replicate SQS queues (incl. their messages) into your LocalStack instance:
-```
-$ localstack aws replicate -s sqs
-```
-
-Once the command has completed, you should be able to list and interact with the queue that was replicated into your local account:
-```
-$ awslocal sqs list-queues
-...
-$ awslocal sqs receive-message --queue-url ...
-...
-```
-
-## Installing
-
-To install the CLI extension, use the following `pip` command:
-```bash
-pip install "git+https://github.com/localstack/localstack-extensions/#egg=localstack-extension-aws-replicator&subdirectory=aws-replicator"
-```
-
-To install the extension itself (server component running inside LocalStack), use the following `extensions` command:
-```bash
-localstack extensions install "git+https://github.com/localstack/localstack-extensions/#egg=localstack-extension-aws-replicator&subdirectory=aws-replicator"
-```
+If you wish to access the deprecated instructions, they can be found [here](https://github.com/localstack/localstack-extensions/blob/fe0c97e8a9d94f72c80358493e51ce6c1da535dc/aws-replicator/README.md#resource-replicator-cli).
 
 ## Change Log
 
+* `0.1.24`: Fix healthcheck probe for proxy container
+* `0.1.23`: Fix unpinned React.js dependencies preventing webui from loading
+* `0.1.22`: Fix auth-related imports that prevent the AWS proxy from starting
+* `0.1.20`: Fix logic for proxying S3 requests with `*.s3.amazonaws.com` host header
+* `0.1.19`: Print human-readable message for invalid regexes in resource configs; fix logic for proxying S3 requests with host-based addressing
+* `0.1.18`: Update environment check to use SDK Docker client and enable starting the proxy from within Docker (e.g., from the LS main container as part of an init script)
+* `0.1.17`: Add basic support for ARN-based pattern-matching for `secretsmanager` resources
+* `0.1.16`: Update imports for localstack >=3.6 compatibility
+* `0.1.15`: Move localstack dependency installation to extra since it's provided at runtime
+* `0.1.14`: Install missing dependencies into proxy container for localstack >=3.4 compatibility
+* `0.1.13`: Add compatibility with localstack >=3.4; add http2-server; migrate to localstack auth login
+* `0.1.12`: Modify aws credentials text field type to password  
 * `0.1.11`: Fix broken imports after recent upstream CloudFormation changes
 * `0.1.10`: Add `REPLICATOR_PROXY_DOCKER_FLAGS` option to pass custom flags to proxy Docker containers
 * `0.1.9`: Enhance proxy networking and add `REPLICATOR_LOCALSTACK_HOST` config option

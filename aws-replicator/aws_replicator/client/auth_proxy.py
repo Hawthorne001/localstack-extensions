@@ -12,13 +12,10 @@ import boto3
 import requests
 from botocore.awsrequest import AWSPreparedRequest
 from botocore.model import OperationModel
-from localstack import config
 from localstack import config as localstack_config
-from localstack.aws.api import HttpRequest
-from localstack.aws.protocol.parser import create_parser
 from localstack.aws.spec import load_service
 from localstack.config import external_service_url
-from localstack.constants import AWS_REGION_US_EAST_1, DOCKER_IMAGE_NAME_PRO
+from localstack.constants import AWS_REGION_US_EAST_1, DOCKER_IMAGE_NAME_PRO, LOCALHOST_HOSTNAME
 from localstack.http import Request
 from localstack.utils.aws.aws_responses import requests_response
 from localstack.utils.bootstrap import setup_logging
@@ -28,20 +25,33 @@ from localstack.utils.docker_utils import DOCKER_CLIENT, reserve_available_conta
 from localstack.utils.files import new_tmp_file, save_file
 from localstack.utils.functions import run_safe
 from localstack.utils.net import get_docker_host_from_container, get_free_tcp_port
-from localstack.utils.server.http2_server import run_server
 from localstack.utils.serving import Server
 from localstack.utils.strings import short_uid, to_bytes, to_str, truncate
-from localstack_ext.bootstrap.licensingv2 import ENV_LOCALSTACK_API_KEY, ENV_LOCALSTACK_AUTH_TOKEN
 from requests import Response
 
 from aws_replicator import config as repl_config
 from aws_replicator.client.utils import truncate_content
 from aws_replicator.config import HANDLER_PATH_PROXIES
+from aws_replicator.shared.constants import HEADER_HOST_ORIGINAL
 from aws_replicator.shared.models import AddProxyRequest, ProxyConfig
+
+from .http2_server import run_server
+
+try:
+    from localstack.pro.core.bootstrap.licensingv2 import (
+        ENV_LOCALSTACK_API_KEY,
+        ENV_LOCALSTACK_AUTH_TOKEN,
+    )
+except ImportError:
+    # TODO remove once we don't need compatibility with <3.6 anymore
+    from localstack_ext.bootstrap.licensingv2 import (
+        ENV_LOCALSTACK_API_KEY,
+        ENV_LOCALSTACK_AUTH_TOKEN,
+    )
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
-if config.DEBUG:
+if localstack_config.DEBUG:
     LOG.setLevel(logging.DEBUG)
 
 # TODO make configurable
@@ -85,7 +95,7 @@ class AuthProxyAWS(Server):
             query_string,
         )
 
-        request = HttpRequest(
+        request = Request(
             body=data,
             method=request.method,
             headers=request.headers,
@@ -97,6 +107,7 @@ class AuthProxyAWS(Server):
 
         # fix headers (e.g., "Host") and create client
         self._fix_headers(request, service_name)
+        self._fix_host_and_path(request, service_name)
 
         # create request and request dict
         operation_model, aws_request, request_dict = self._parse_aws_request(
@@ -156,8 +167,10 @@ class AuthProxyAWS(Server):
             raise
 
     def _parse_aws_request(
-        self, request: HttpRequest, service_name: str, region_name: str, client
+        self, request: Request, service_name: str, region_name: str, client
     ) -> Tuple[OperationModel, AWSPreparedRequest, Dict]:
+        from localstack.aws.protocol.parser import create_parser
+
         parser = create_parser(load_service(service_name))
         operation_model, parsed_request = parser.parse(request)
         request_context = {
@@ -245,19 +258,30 @@ class AuthProxyAWS(Server):
                 req_json["QueueOwnerAWSAccountId"] = account_id
                 request_dict["body"] = to_bytes(json.dumps(req_json))
 
-    def _fix_headers(self, request: HttpRequest, service_name: str):
+    def _fix_headers(self, request: Request, service_name: str):
         if service_name == "s3":
             # fix the Host header, to avoid bucket addressing issues
             host = request.headers.get("Host") or ""
             regex = r"^(https?://)?([0-9.]+|localhost)(:[0-9]+)?"
             if re.match(regex, host):
-                request.headers["Host"] = re.sub(regex, r"\1s3.localhost.localstack.cloud", host)
+                request.headers["Host"] = re.sub(regex, rf"\1s3.{LOCALHOST_HOSTNAME}", host)
         request.headers.pop("Content-Length", None)
         request.headers.pop("x-localstack-request-url", None)
         request.headers.pop("X-Forwarded-For", None)
         request.headers.pop("X-Localstack-Tgt-Api", None)
         request.headers.pop("X-Moto-Account-Id", None)
         request.headers.pop("Remote-Addr", None)
+
+    def _fix_host_and_path(self, request: Request, service_name: str):
+        if service_name == "s3":
+            # fix the path and prepend the bucket name, to avoid bucket addressing issues
+            regex_base_domain = rf"((amazonaws\.com)|({LOCALHOST_HOSTNAME}))"
+            host = request.headers.pop(HEADER_HOST_ORIGINAL, None)
+            host = host or request.headers.get("Host") or ""
+            match = re.match(rf"(.+)\.s3\..*{regex_base_domain}", host)
+            if match:
+                # prepend the bucket name (extracted from the host) to the path of the request (path-based addressing)
+                request.path = f"/{match.group(1)}{request.path}"
 
     def _extract_region_and_service(self, headers) -> Optional[Tuple[str, str]]:
         auth_header = headers.pop("Authorization", "")
@@ -310,13 +334,17 @@ def start_aws_auth_proxy_in_container(
     # create container
     container_name = f"{CONTAINER_NAME_PREFIX}{short_uid()}"
     image_name = DOCKER_IMAGE_NAME_PRO
+    # add host mapping for localstack.cloud to localhost to prevent the health check from failing
+    additional_flags = (
+        repl_config.PROXY_DOCKER_FLAGS + " --add-host=localhost.localstack.cloud:host-gateway"
+    )
     DOCKER_CLIENT.create_container(
         image_name,
         name=container_name,
         entrypoint="",
         command=["bash", "-c", f"touch {CONTAINER_LOG_FILE}; tail -f {CONTAINER_LOG_FILE}"],
         ports=ports,
-        additional_flags=repl_config.PROXY_DOCKER_FLAGS,
+        additional_flags=additional_flags,
     )
 
     # start container in detached mode
@@ -327,7 +355,8 @@ def start_aws_auth_proxy_in_container(
     command = [
         "bash",
         "-c",
-        f"{venv_activate}; pip install --upgrade --no-deps '{CLI_PIP_PACKAGE}'",
+        # TODO: manually installing quart/h11/hypercorn as a dirty quick fix for now. To be fixed!
+        f"{venv_activate}; pip install h11 hypercorn quart; pip install --upgrade --no-deps '{CLI_PIP_PACKAGE}'",
     ]
     DOCKER_CLIENT.exec_in_container(container_name, command=command)
 
@@ -358,10 +387,14 @@ def start_aws_auth_proxy_in_container(
         target_host = get_docker_host_from_container()
     env_vars["LOCALSTACK_HOST"] = target_host
 
+    # Use the Docker SDK command either if quiet mode is enabled, or if we're executing
+    # in Docker itself (e.g., within the LocalStack main container, as part of an init script)
+    use_docker_sdk_command = quiet or localstack_config.is_in_docker
+
     try:
         print("Proxy container is ready.")
         command = f"{venv_activate}; localstack aws proxy -c {CONTAINER_CONFIG_FILE} -p {port} --host 0.0.0.0 > {CONTAINER_LOG_FILE} 2>&1"
-        if quiet:
+        if use_docker_sdk_command:
             DOCKER_CLIENT.exec_in_container(
                 container_name, command=["bash", "-c", command], env_vars=env_vars, interactive=True
             )
