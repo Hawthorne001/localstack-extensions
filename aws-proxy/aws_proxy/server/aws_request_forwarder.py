@@ -88,8 +88,12 @@ class AwsProxyHandler(Handler):
 
             # check if only read requests should be forwarded
             read_only = service_config.get("read_only")
-            if read_only and not self._is_read_request(context):
-                return
+            if read_only:
+                allow_execute = service_config.get("execute")
+                if not self._is_read_request(context) and not (
+                    allow_execute and self._is_execute_request(context)
+                ):
+                    return
 
             # check if any operation name pattern matches
             operation_names = ensure_list(service_config.get("operations", []))
@@ -150,6 +154,17 @@ class AwsProxyHandler(Handler):
                             return True
                     return False
                 # For metric operations without alarm names, check if pattern is generic
+                return bool(re.match(resource_name_pattern, ".*"))
+            if service_name == "lambda":
+                # Lambda function ARN format: arn:aws:lambda:{region}:{account}:function:{name}
+                function_name = context.service_request.get("FunctionName") or ""
+                if function_name:
+                    if ":function:" not in function_name:
+                        function_arn = f"arn:aws:lambda:{context.region}:{context.account_id}:function:{function_name}"
+                    else:
+                        function_arn = function_name
+                    return bool(re.match(resource_name_pattern, function_arn))
+                # For operations without FunctionName (e.g., ListFunctions), check if pattern is generic
                 return bool(re.match(resource_name_pattern, ".*"))
             if service_name == "logs":
                 # CloudWatch Logs ARN format: arn:aws:logs:{region}:{account}:log-group:{name}:*
@@ -288,6 +303,21 @@ class AwsProxyHandler(Handler):
         }:
             return True
         # TODO: add more rules
+        return False
+
+    def _is_execute_request(self, context: RequestContext) -> bool:
+        """
+        Function to determine whether a request is an invoke/execute request.
+        Invoke operations have side-effects and are not considered read operations.
+        They can be explicitly allowed alongside read_only mode via the 'execute' config flag.
+        """
+        operation_name = context.service_operation.operation
+        if context.service.service_name == "lambda" and operation_name in {
+            "Invoke",
+            "InvokeAsync",
+            "InvokeWithResponseStream",
+        }:
+            return True
         return False
 
     def _extract_region_from_domain(self, context: RequestContext):
