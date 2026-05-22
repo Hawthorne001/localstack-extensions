@@ -12,7 +12,7 @@
 		"@aws-sdk/client-dynamodb": "^3.82.0",
 		"@aws-sdk/client-rds": "^3.82.0",
 		"@aws-sdk/client-rds-data": "^3.82.0",
-		"@aws-sdk/client-sqs": "^3.82.0"
+		"@aws-sdk/client-sqs": "^3.565.0"
 	},
 	"devDependencies": {
 		"@esbuild-plugins/node-modules-polyfill": "0.1.4",
