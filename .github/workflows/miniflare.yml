@@ -21,9 +21,11 @@ jobs:
   tests-miniflare:
     name: Run extension tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: true
 
@@ -36,7 +38,7 @@ jobs:
 
           make install
           make dist
-          localstack extensions -v install file://$(ls ./dist/localstack_extension_miniflare-*.tar.gz)
+          localstack extensions -v install file://"$(ls ./dist/localstack_extension_miniflare-*.tar.gz)"
 
           DEBUG=1 localstack start -d
           localstack wait

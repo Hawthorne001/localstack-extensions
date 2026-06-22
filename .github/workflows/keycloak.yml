@@ -22,10 +22,14 @@ jobs:
   integration-tests:
     name: Run Integration Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup LocalStack and extension
         run: |
@@ -37,7 +41,7 @@ jobs:
 
           make install
           make dist
-          localstack extensions -v install file://$(ls ./dist/localstack_keycloak-*.tar.gz)
+          localstack extensions -v install file://"$(ls ./dist/localstack_keycloak-*.tar.gz)"
 
           DEBUG=1 localstack start -d
           localstack wait
